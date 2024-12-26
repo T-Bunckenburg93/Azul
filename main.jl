@@ -246,7 +246,7 @@ length(B) # 96
 
 """
 mutable struct Islands
-    islands::Array{Bag, 1}
+    islands::Vector{Bag}
 end
 
 """
@@ -268,7 +268,10 @@ length(B) # 96
 """
 function populateIsland!(island::Bag, bag::Bag)
     for i in 1:4
-        push!(island.tiles, drawTile!(bag))
+        try push!(island.tiles, drawTile!(bag)) # if the bag runs out, no stresso. 
+        catch
+            break
+        end
     end
 end
 
@@ -641,9 +644,9 @@ function isRowFull(row::TriangleRow)
     end
 end
 
-game = initGame(players = 2)
-addTilesToRow!(game, 1, 2, [mosaicTile(:blue)]); # adds some tiles
-isRowFull(game.boards[1].triangle.rows[2]) # row has been filled up)
+# game = initGame(players = 2)
+# addTilesToRow!(game, 1, 2, [mosaicTile(:blue)]); # adds some tiles
+# isRowFull(game.boards[1].triangle.rows[2]) # row has been filled up)
 
 
 
@@ -666,7 +669,7 @@ function addTilesToRow!(game::Game, board_i::Int, row_i::Int, tiles::Union{Vecto
     @assert length(Set(tiles)) == 1 "Multiple colours in incoming tiles: $tiles"
     @assert tiles[1].colour ∈ game.boards[board_i].triangle.rows[row_i].eligible "Colour not eligible for row"
 
-    if row_i == 0
+    if row_i == 6 # 0
         # Push tiles straight to the pool
         for tile in tiles
             push!(game.boards[board_i].discard.tiles, tile)
@@ -1112,8 +1115,37 @@ function finishRound!(game::Game)
         push!(game.pool.tiles, startTile())
 
         # repopulate the islands
-        for i in 1:length(game.islands.islands)
-            populateIsland!(game.islands.islands[i], game.bag)
+
+        players  = length(game.boards)
+        if players == 2
+            for i in 1:5
+                I = Bag(Tile[])
+                populateIsland!(I, game.bag)
+                if length(I.tiles) > 0
+                    push!(game.islands.islands, I)
+                end
+            end
+        end
+        
+        if players == 3
+            for i in 1:7
+                I = Bag(Tile[])
+                populateIsland!(I, game.bag)
+                if length(I.tiles) > 0
+                    push!(game.islands.islands, I)
+                end
+            end
+        
+        end
+        
+        if players == 4
+            for i in 1:9
+                I = Bag(Tile[])
+                populateIsland!(I, game.bag)
+                if length(I.tiles) > 0
+                    push!(game.islands.islands, I)
+                end
+            end
         end
 
         return game
@@ -1127,7 +1159,65 @@ end
 
 
 
-checkMoves(game)[1]
+# ok, so we want to check to see if the game is over.
+# the game is over if a grid row is full
+
+function isGameOver(game::Game)
+
+    for b in game.boards
+
+        for i in 1:5
+            if b.mosaic.grid[i,:] == [true,true,true,true,true]
+                println("")
+                println("###")
+                println("Game is over")
+                println("###")
+
+                return true
+            end
+        end
+    end
+    # else
+    return false
+end
+
+# looks at a board and returns the extra score of the players
+function checkExtraScore(board::Board)
+
+    grid = board.mosaic.grid
+    score = 0
+
+    allColours = reshape(mosaicMap,25)[findall(x -> x == true, reshape(grid,25))]
+
+    for i in 1:5
+        if grid[i,:] == [true,true,true,true,true]
+            println("Row $i is full")
+            score+= 2
+        end
+    end
+
+    for i in 1:5
+        if grid[:,i] == [true,true,true,true,true]
+            println("col $i is full")
+            score+= 7
+        end
+    end
+
+    # and all colours.
+    for i in tile_colours
+
+        if count(c -> c == i, allColours) == 5
+            score+= 10
+        end
+    end
+
+    return score
+end
+
+
+
+
+
 # ok, lets have a little test.
 
 # println("Running Game!")
@@ -1158,24 +1248,33 @@ function runGametest(;game = initGame(players = 2))
         runMove!(game,moof);
     end
     
-    
         finishRound!(game);
+
+        if isGameOver(game)
+            for b in game.boards
+                b.score+= checkExtraScore(b)
+                println(b.score)
+            end
+
+            # and print the final scores
+
+        end
+
         return game;
 end
 
 
 
 
-gtest = runGametest()
+game = initGame(players = 2);
 
-gtest.boards[1].triangle.rows[5]
-gtest.boards[1].score
+# playerMoves(game,game.playerTurn)[32]
+# runMove!(game,playerMoves(game,game.playerTurn)[32]);
+runGametest(game = game);
 
+game.boards[1].triangle.rows
+game.boards[2].mosaic.grid
 
-
-G = initGame(players = 2);
-
-runGametest(game = G);
 
 # Next step is to have the game run until the game is over.
 # we need to re init the islands post round. 
