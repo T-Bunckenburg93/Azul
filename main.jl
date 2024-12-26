@@ -1,8 +1,14 @@
+
 using Random
 
 # Structures:
 # Tile # Board # Triangle # Mosaic # Overflow # Score # Islands # Tile Management
+"""
+These are the colours of the tiles in the game
+"""
 const global tile_colours = [:blue, :yellow, :red, :black, :white]
+
+
 
 # Define the mosaic tiles
 mTiles = deepcopy(tile_colours)
@@ -12,6 +18,16 @@ for i in 1:5
     _mosaic[i, 1:5] = mTiles[1:5]
     pushfirst!(mTiles, pop!(mTiles))
 end
+
+
+"""
+this is the lookup for the mosaic tiles:
+    :blue    :yellow  :red     :black   :white
+    :white   :blue    :yellow  :red     :black
+    :black   :white   :blue    :yellow  :red
+    :red     :black   :white   :blue    :yellow
+    :yellow  :red     :black   :white   :blue
+"""
 const global mosaicMap = _mosaic
 
 
@@ -19,20 +35,45 @@ const global mosaicMap = _mosaic
 
 # Tile Colours:
 
-# Start_token
+"""
+Tiles are the basic unit of the game. They can be of any colour, or blank.
+
+Access the colour of the tile with `tile.colour`:
+
+```julia
+t = mosaicTile(:blue)
+t.colour # :blue
+```
+
+"""
 abstract type Tile end
 
-# add equivulency
+
+# Overload the Base functions for tile
 import Base.==
+
 function ==(t1::Tile, t2::Tile)
     t1.colour == t2.colour
 end
 
+
+"""
+MosaicTile is a subtype of Tile. These are the tiles that are used in the game.
+they can be present in either the bag, the pool, the islands, or the player's discard.
+"""
 struct MosaicTile <: Tile
     colour::Symbol
 end
 
+"""
+Initaliser for MosaicTile. This will take a colour and return a MosaicTile.
 
+```julia
+t = mosaicTile(:blue)
+s = mosaicTile("blue")
+```
+
+"""
 function mosaicTile(colour::Union{String, Symbol})
     if colour isa String
         colour = Symbol(colour)
@@ -46,12 +87,44 @@ end
 
 ##### Bag #####
 
+"""
+Bag is a collection of tiles. This is used to represent the bag of tiles that players draw from, but is also used to represent the pool of tiles in the middle of the board, the islands, and the player's discard.
 
+A full Azul board can be initalised with `CreateBag()`. This will return a bag with 100 tiles, 20 of each colour.
+
+An empty bag can be initalised with `CreateBag(empty = true)`. This will return an empty bag.
+
+```julia
+B = CreateBag()
+B2 = CreateBag(empty = true)
+
+length(B) # 100
+length(B2) # 0
+
+```
+
+"""
 mutable struct Bag
     tiles::Array{Tile, 1}
 end
 
+"""
+Bag is a collection of tiles. This is used to represent the bag of tiles that players draw from, but is also used to represent the pool of tiles in the middle of the board, the islands, and the player's discard.
 
+A full Azul board can be initalised with `CreateBag()`. This will return a bag with 100 tiles, 20 of each colour.
+
+An empty bag can be initalised with `CreateBag(empty = true)`. This will return an empty bag.
+
+```julia
+B = CreateBag()
+B2 = CreateBag(empty = true)
+
+length(B) # 100
+length(B2) # 0
+
+```
+
+"""
 function CreateBag(; empty::Bool = false)
 
     tiles = Tile[]
@@ -68,64 +141,137 @@ function CreateBag(; empty::Bool = false)
 end
 
 
+# Overload the Base functions for Bag
 import Base.length
 function length(x::Bag)
     length(x.tiles)
 end
-
-
 import Base.append!
 function append!(bag::Bag,add::Bag)
     append!(bag.tiles,add.tiles)
 end
 
- 
 B = CreateBag()
 discard = CreateBag(empty = true)
 pool = CreateBag(empty = true)
 
 
+"""
+This removes a tile from the bag and returns it. The bag is then shuffled
+
+```julia
+B = CreateBag()
+t = drawTile!(B)
+# t is a MosaicTile from the bag
+```
+
+"""
 function drawTile!(bag::Bag)
+    shuffle!(bag.tiles)
     return pop!(bag.tiles)
 end
+"""
+This adds a tile to the bag and shuffles the bag
 
+```julia
+B = CreateBag()
+t = mosaicTile(:blue)
+addTile!(B, t)
+```
+"""
 function addTile!(bag::Bag, tile::Tile)
     push!(bag.tiles, tile)
     shuffle!(bag.tiles)
-
 end
+
 B = CreateBag()
 t1 = drawTile!(B)
 addTile!(B, t1)
 
+"""
+This moves all the tiles in one bag to another bag, and then shuffles the bag
 
-function discard2Bag!(discard::Bag, bag::Bag)
+```julia
+B1 = CreateBag(empty = true)    
+B2 = CreateBag(empty = true)
+
+addTile!(B1, mosaicTile(:blue))
+addTile!(B1, mosaicTile(:red))
+
+moveTiles!(B1, B2)
+
+length(B1) # 0
+length(B2) # 2
+
+"""
+function bagToBag!(discard::Bag, bag::Bag)
 
     for tile in discard.tiles
         addTile!(bag, tile)
     end
-
     discard.tiles = Tile[]
     shuffle!(bag.tiles)
 
 end
 
+# B1 = CreateBag(empty = true)
+# B2 = CreateBag(empty = true)
+
+# addTile!(B1, mosaicTile(:blue))
+# addTile!(B1, mosaicTile(:red))
+
+# bagToBag!(B1, B2)
+
+# length(B1) # 0
+# length(B2) # 2
+
 
 ##### Islands #####
 
+"""
+Islands are the collection of tiles that players can draw from. Each island has 4 tiles on it.
+We initalise an island populateIsland!(island, bag) which will take an island and a bag and populate the island with 4 tiles from the bag.
+
+```julia
+
+I1 = Bag(Tile[])
+B = CreateBag()
+
+length(B) # 100
+
+populateIsland!(I1, B)
+
+length(I1) # 4
+length(B) # 96
+
+"""
 mutable struct Islands
     islands::Array{Bag, 1}
 end
 
- 
+"""
+Islands are the collection of tiles that players can draw from. Each island has 4 tiles on it.
+We initalise an island populateIsland!(island, bag) which will take an island and a bag and populate the island with 4 tiles from the bag.
+
+```julia
+
+I1 = Bag(Tile[])
+B = CreateBag()
+
+length(B) # 100
+
+populateIsland!(I1, B)
+
+length(I1) # 4
+length(B) # 96
+
+"""
 function populateIsland!(island::Bag, bag::Bag)
     for i in 1:4
         push!(island.tiles, drawTile!(bag))
     end
 end
-I1 = Bag(Tile[])
-populateIsland!(I1, B)
-I1
+
 
 ##### Board #####
 #######################################
@@ -139,7 +285,9 @@ mutable struct TriangleRow
     completed::Bool
 end
 
-
+"""
+Internal function for initalising a row of the triangle.
+"""
 function initRow(; len = 1)
     t = TriangleRow(Vector{MosaicTile}(undef, len), Set(tile_colours), len,false)
     # b =  (mosaicTile(:blank))
@@ -149,10 +297,41 @@ end
 
 initRow(len = 1)
 
+"""
+The triangle is the main part of the board. It is a triangle of tiles that players can add tiles to. The triangle has 5 rows, with the first row having 1 tile, the second row having 2 tiles, and so on, up to the 5th row having 5 tiles. 
+there is also a 6th 'void' row with length 0 that players add tiles to if they have no other valid moves. This will move them into the boards discard.
+
+The triangle is initalised with `initTriangle()`. This will return a triangle with 6 rows, the first 5 rows having 1, 2, 3, 4, and 5 tiles respectively, and the 6th row being the void row.
+The triangle is initalised with blank tiles.
+
+```julia
+T = initTriangle()
+T.rows[1].tiles # [mosaicTile(:blank)]
+T.rows[2].tiles # [mosaicTile(:blank), mosaicTile(:blank)]
+```
+
+
+"""
 mutable struct Triangle
     rows::Array{TriangleRow, 1}
+
 end
 
+"""
+The triangle is the main part of the board. It is a triangle of tiles that players can add tiles to. The triangle has 5 rows, with the first row having 1 tile, the second row having 2 tiles, and so on, up to the 5th row having 5 tiles. 
+there is also a 6th 'void' row with length 0 that players add tiles to if they have no other valid moves. This will move them into the boards discard.
+
+The triangle is initalised with `initTriangle()`. This will return a triangle with 6 rows, the first 5 rows having 1, 2, 3, 4, and 5 tiles respectively, and the 6th row being the void row.
+The triangle is initalised with blank tiles.
+
+```julia
+T = initTriangle()
+T.rows[1].tiles # [mosaicTile(:blank)]
+T.rows[2].tiles # [mosaicTile(:blank), mosaicTile(:blank)]
+```
+
+
+"""
 function initTriangle()
 
     rows = TriangleRow[]
@@ -190,10 +369,27 @@ end
 # discar.tiles
 
 # This is the pool of tiles in the middle of the board
+"""
+The pool is the collection of tiles in the middle of the board that players can draw from. The pool is initalised with a start tile. When players first take from the pool, they take the start tile, and they are the first player in the next round.
+
+```julia
+p = initPool()
+p.tiles # [startTile()]
+```
+
+"""
 mutable struct Pool
     tiles::Array{Tile, 1}
 end
 
+"""
+The pool is the collection of tiles in the middle of the board that players can draw from. The pool is initalised with a start tile. When players first take from the pool, they take the start tile, and they are the first player in the next round.
+
+```julia
+p = initPool()
+p.tiles # [startTile()]
+```
+"""
 function initPool()
     p = Bag(Tile[])
     push!(p.tiles, startTile())
@@ -202,16 +398,27 @@ end
 
 pool = initPool()
 
-# We will do score and mosaic tiles later
 
-# Lets do the interactions between the board and the bag during a round.
-# Score is literally just a number that can't drop to zero.
-# Mosaic is a bit trickier?
+"""
+This is the wall that tiles are placed on. This is a 5x5 bool matrix, that indicates if a tile is present in a given position. It pairs with the mosaicMap to see what colour tiles go where
 
+```julia
+M = initMosaic()
+M.grid # 5x5 Array{Bool,2}
+```
+"""
 mutable struct MosaicWall
     grid::Array{Bool, 2}  # (false, 5, 5)
 end
 
+"""
+This is the wall that tiles are placed on. This is a 5x5 bool matrix, that indicates if a tile is present in a given position. It pairs with the mosaicMap to see what colour tiles go where
+
+```julia
+M = initMosaic()
+M.grid # 5x5 Array{Bool,2}
+```
+"""
 function initMosaic()
 
     M = Array{Bool}(undef, 5, 5)
@@ -223,7 +430,19 @@ end
 M = initMosaic()
 
 # Need a function that takes a colour and a row, adds the colour to the row, and calculates the score from adding that tile
+"""
+Finds the longest sequence of tiles in a row or column that the tile is in. This is used to calculate the score of adding a tile to the mosaic wall.
 
+```julia
+
+v = [true, true, true, false, true]
+scoreVec(v, 1) # 3
+scoreVec(v, 5) # 1
+
+used on cols and rows of the mosaic wall to calculate the score of adding a tile
+
+```
+"""
 function scoreVec(BooVec::Vector{Bool},pos::Int64)
 
     # Init at -1 because we don't want to double countthe center Tile
@@ -252,7 +471,14 @@ function scoreVec(BooVec::Vector{Bool},pos::Int64)
 end
 
 
+"""
+This takes a mosiac wall, a colour and a row, and populates the row with the colour, modifying the wall. It then calculates the score of adding that tile to the row and returns it.
 
+```julia
+M = initMosaic()
+addToRow!(M,:yellow,1) # 1
+```
+"""
 function addToRow!(wall::MosaicWall,colour::Symbol,row::Int)
 
     # find the position of the color across
@@ -288,9 +514,19 @@ end
 M = initMosaic()
 addToRow!(M,:yellow,1)
 
-# islands::Islands
-# pool::Pool
-# Init the board
+
+"""
+This board is the main object that players interact with. It hold the triangle, the mosaic wall, the discard, and the score of the player.
+
+```julia
+B = initBoard()
+B.triangle # Triangle
+B.mosaic # MosaicWall
+B.discard # Bag
+B.score # 0
+```
+
+"""
 mutable struct Board
 
     triangle::Triangle
@@ -300,11 +536,29 @@ mutable struct Board
 end
 
 function initBoard()
-    Board(initTriangle(), MosaicWall(Array{Bool}(undef, 5, 5)), CreateBag(empty = true), 0)
+    Board(initTriangle(), initMosaic(), CreateBag(empty = true), 0)
 end
 
-# P1 = initBoard()
 
+P1 = initBoard()
+
+
+"""
+this is the game object that holds everything that is needed to play the game. 
+It holds the bag, the islands, the pool, the boards, the rounds, and the players turn.
+You can choose between 2-4 players via players = 2,3,4
+
+```julia
+game = initGame(players = 2)
+game.bag # Bag
+game.islands # Islands
+game.pool # Pool
+game.boards # Vector{Board}
+game.rounds # 0
+game.playerTurn # 1
+```
+
+"""
 mutable struct Game
     bag::Bag
     islands::Islands
@@ -373,6 +627,40 @@ game = initGame(players = 2)
 # and pop the rest into the pool. We assume that the tiles are already in the slurp
 # and that the colour is eligible for the row.
 
+# check if a row is full
+function isRowFull(row::TriangleRow)
+
+    # count of tiles
+    if row.sz == 0
+        return false
+    end
+    if row.tiles[1].colour == :blank
+        return false
+    else
+        return count( f -> f.colour == row.tiles[1].colour, row.tiles) == row.sz
+    end
+end
+
+game = initGame(players = 2)
+addTilesToRow!(game, 1, 2, [mosaicTile(:blue)]); # adds some tiles
+isRowFull(game.boards[1].triangle.rows[2]) # row has been filled up)
+
+
+
+"""
+This function takes a game, a board, a row, and a set of tiles, and applies the tiles to the row. If the row is full, it sets the row to completed, and if there are any tiles left, it puts them in the pool.
+
+```julia
+game = initGame(players = 2)
+addTilesToRow!(game, 1, 2, [mosaicTile(:blue),mosaicTile(:blue),mosaicTile(:blue),]); # adds some tiles
+game.boards[1].triangle.rows[2] # row has been filled up
+game.boards[1].discard.tiles # one blue tile left over
+
+```
+
+note that the row of tiles all have to be the same colour
+
+"""
 function addTilesToRow!(game::Game, board_i::Int, row_i::Int, tiles::Union{Vector{Tile},Vector{MosaicTile}})
     
     @assert length(Set(tiles)) == 1 "Multiple colours in incoming tiles: $tiles"
@@ -397,9 +685,9 @@ function addTilesToRow!(game::Game, board_i::Int, row_i::Int, tiles::Union{Vecto
         end
     end
 
-
     # if we still have tiles here, it means the row has filled up so we update
-    if length(tiles) > 0 && row_i != 6
+    
+    if row_i != 6 && isRowFull(game.boards[board_i].triangle.rows[row_i])
         game.boards[board_i].triangle.rows[row_i].completed = true
         println("Row $row_i is completed")
     end
@@ -412,13 +700,29 @@ function addTilesToRow!(game::Game, board_i::Int, row_i::Int, tiles::Union{Vecto
 
 end
 
-game = initGame(players = 2)
-addTilesToRow!(game, 1, 2, [mosaicTile(:blue),]);
-game.boards[1].triangle.rows[2]
+mosaicTile.([:blue])
 
 
 # This is the main game loop. Here a player chooses a tile from either the pool or an island.
 # The corresponding effects are then applied.
+"""
+This function takes a game, a player, an island, a colour, and a row, and applies the player's action to the game. If the island =  0, the player is taking from the pool, otherwise they are taking from the island number.
+This function will take the tiles from the pool or island, and apply them to the player's board. If the row is full, the tiles will go to the player's discard. If the player takes the start token, it will go to the player's discard.
+
+```julia
+game = initGame(players = 2)
+game.islands.islands[1].tiles = [mosaicTile(:blue), mosaicTile(:blue), mosaicTile(:blue), mosaicTile(:red)]
+playerAction!(game, 1, 1, :blue, 2)
+
+game.boards[1].triangle.rows[2] # row has been filled up
+game.boards[1].discard.tiles # one blue tile left over
+game.pool.tiles # the rest of the tiles in the pool 
+game.islands.islands # the island has been removed
+```
+
+Once an island is taken from it is removed, so islands won't maintain their id between turns.
+
+"""
 function playerAction!(game::Game, player::Int, island_i::Int, colour::Symbol, triangleRow::Int)
 
     # If island == 0, then we are pulling from the pool
@@ -474,18 +778,12 @@ function playerAction!(game::Game, player::Int, island_i::Int, colour::Symbol, t
     return game
 
 end
-game = initGame(players = 2)
-_t = game.islands.islands[1].tiles
-playerAction!(game, 1, 1, _t[3].colour, 5)
-game.islands.islands
-game.boards[1].discard.tiles
 
-# game.pool.tiles
-# Player action example:
-# playerAction!(game, 1, 0, :white, 5)
-# game.boards[1]
-# Check for vaid options for moves
 
+"""
+This function checks the moves that are possible in the game. It returns a tuple of the pool or island to pull from, the colour of the tile, and the amount of tiles of that colour.
+
+"""
 function checkMoves(game::Game)
 
     moves = []
@@ -513,7 +811,11 @@ function checkMoves(game::Game)
     return moves
 end
 
-# This is a move object that will be used to store the moves that are possible for the player
+"""
+Contains a valid move that the player can select. These are a combination of the colours and pool/islands, as well as the valid rows to put the tiles in.
+
+Produced in the playerMoves function for the runMove! function
+"""
 struct PlayerMove
     player::Int # player number
     colour::Symbol # tile colour that will be pulled
@@ -534,8 +836,7 @@ PM = PlayerMove(_player, _colour,2, _pool, _triangleRow)
 # this returns a tuple of the pool or is
 """
 Looks at the moves on the board and returns the moves that are possible for the player
-returns a tuple 
-(pool to pull from, colour, amount, triangeRow)
+returns a PlayerMove object that can be used in the runMove! function
 """
 function playerMoves(game::Game,player::Int)
 
@@ -567,27 +868,30 @@ end
 
 
 
-game = initGame()
+# game = initGame()
 
-# take 3rd tile from first factory
-playerAction!(game, 1, 1, game.islands.islands[1].tiles[3].colour, 5)
-game.islands.islands
+# # take 3rd tile from first factory
+# playerAction!(game, 1, 1, game.islands.islands[1].tiles[3].colour, 5)
+# game.islands.islands
 
-# and take from the middle
-playerAction!(game, 2, 0, game.pool.tiles[end].colour, 5)
+# # and take from the middle
+# playerAction!(game, 2, 0, game.pool.tiles[end].colour, 5)
 
-# make a full row
-game.islands.islands[1].tiles = [mosaicTile(:blue), mosaicTile(:blue), mosaicTile(:blue), mosaicTile(:blue)]
-playerAction!(game, 2, 1, :blue, 4)
+# # make a full row
+# game.islands.islands[1].tiles = [mosaicTile(:blue), mosaicTile(:blue), mosaicTile(:blue), mosaicTile(:blue)]
+# playerAction!(game, 2, 1, :blue, 4)
 
 
-playerMoves(game,1)
+# playerMoves(game,1)
 
-game.boards[1].triangle.rows[5]
+# game.boards[1].triangle.rows[5]
 
 
 
 # # This runs the move that comes from the function above.
+"""
+This function takes a game and a move, and applies the move to the game. The move is a PlayerMove object that is produced by the playerMoves function.
+"""
 function runMove!(game::Game, move::PlayerMove)
 
     playerAction!(game, move.player, move.pool, move.colour, move.row)
@@ -598,7 +902,7 @@ game = initGame(players = 2)
 moves = playerMoves(game,1)
 
 moves[1]
-runMove!(game, moves[1])
+# runMove!(game, moves[1])
 
 
 
@@ -607,7 +911,9 @@ runMove!(game, moves[1])
 # MosaicWall
 # This finds the amount we reduce the score by.
 # n is the number of tiles in the discard row
-
+"""
+This function calculates the penalty for the number of tiles in the discard row. This is the number of tiles in the discard row divided by 2, rounded up.
+"""
 function pentaltyCalc(n)::Int
 
     score = 0
@@ -618,11 +924,46 @@ function pentaltyCalc(n)::Int
     return score
 end
 
-pentaltyCalc(2)
+pentaltyCalc(0)
 
+# TriangleRow
 # I want to take a board, move all the tiles off of it, update the mozaic wall, calculate the score and return the tiles,
 # and then update the score of the board.
 # This also yeets the start tile if it exists. 
+
+
+function updateEligibilty!(board::Board)
+
+    for i in board.triangle.rows
+        if i.tiles !=MosaicTile[] && i.tiles[1].colour == :blank # this should mean that the row is empty
+            # get the tiles that have been completed.
+
+            colourRow = mosaicMap[i.sz,:]
+            completed = board.mosaic.grid[i.sz,:]
+            doneColours = colourRow[findall(x -> x == true, completed)]
+
+            i.eligible = Set(setdiff(tile_colours, doneColours))
+
+        end
+    end
+
+end
+
+
+# game = initGame(players = 2)
+# addTilesToRow!(game, 1, 2, [mosaicTile(:blue),mosaicTile(:blue)])
+# applyScore!(game.boards[1])
+# updateEligibilty!(game.boards[1])
+
+game.boards[1].triangle.rows[2].eligible
+
+
+"""
+This function calculates the score
+It moves all the tiles off of the board, updates the mosaic wall, calculates the score, and returns the tiles. 
+It then updates the score of the board and updates eligible colours.
+
+"""
 function applyScore!(board::Board)
 
     returnTiles = CreateBag(empty = true)
@@ -635,48 +976,78 @@ function applyScore!(board::Board)
             score+= addToRow!(board.mosaic, i.tiles[1].colour,i.sz)
             
             # Apply discard tiles to bag
-            for n in 1:i.sz
+            for n in 1:i.sz -1
                 push!(returnTiles.tiles ,mosaicTile(i.tiles[1].colour))
             end
 
             # and reinit the row
             i.completed = false
+            i.tiles = Vector{MosaicTile}(undef, i.sz)
+            i.tiles .= (mosaicTile(:blank),)
 
         end
     end
 
     # now we look at the number of tiles in the discard
-    score =- pentaltyCalc(length(board.discard))
+    score = score - pentaltyCalc(length(board.discard))
 
     # and update the board score
-    board.score = max(board.score + score,0)
+    board.score = board.score + score
+    if board.score < 0
+        board.score = 0
+    end
 
     # and add these tiles to the output
     append!(returnTiles.tiles,board.discard.tiles)
     board.discard = CreateBag(empty = true)
 
+    # finally. update the eligible colours
+    updateEligibilty!(board)
+
+
     return returnTiles
 
 end
 
-B = initBoard()
 
-B.triangle.rows[4].tiles = [mosaicTile(:blue), mosaicTile(:blue), mosaicTile(:blue), mosaicTile(:blue)]
-B.discard.tiles = [mosaicTile(:blue), mosaicTile(:blue)]
+game = initGame(players = 2)
+# B = initBoard()
 
-B.triangle.rows
+addTilesToRow!(game,1, 4, [mosaicTile(:blue),mosaicTile(:blue)])
+game.boards[1].triangle.rows[4].tiles
+game.boards[1].triangle.rows[4].eligible
+
+applyScore!(game.boards[1])
+game.boards[1].triangle.rows[4].completed
+
+game.boards[1].mosaic.grid
 
 
-applyScore!(B)
+
+game.boards[1]
+
+game.boards[1].score
+addTilesToRow!(game,1, 4, [mosaicTile(:blue),mosaicTile(:blue)])
+
+game.boards[1].triangle.rows[4].tiles
+game.boards[1].triangle.rows[4].eligible
+game.boards[1].triangle.rows[4].completed
+game.boards[1].discard.tiles
 
 
 
-B.score
+applyScore!(game.boards[1])
+
+
+game.boards[1].score
+game.boards[1].triangle.rows[4].eligible
+
+
+
 
 function findWhoStarts(game::Game)
 
     b = 0
-
     for i in 1:length(game.boards)
         if startTile() ∈ game.boards[i].discard.tiles
             b = i
@@ -740,6 +1111,11 @@ function finishRound!(game::Game)
         # move the start token to the Pool
         push!(game.pool.tiles, startTile())
 
+        # repopulate the islands
+        for i in 1:length(game.islands.islands)
+            populateIsland!(game.islands.islands[i], game.bag)
+        end
+
         return game
     else
 
@@ -757,16 +1133,15 @@ checkMoves(game)[1]
 # println("Running Game!")
 
 
-function runGametest()
+function runGametest(;game = initGame(players = 2))
     println("Running Test Game!")
     println("")
 
     # Init the game
-    game = initGame(players = 2)
+    # game = initGame(players = 2)
 
     # Show moves
     while checkMoves(game) != []
-
  
         p = game.playerTurn
         moves = playerMoves(game,p);
@@ -783,18 +1158,29 @@ function runGametest()
         runMove!(game,moof);
     end
     
-        # finishRound!(game);
+    
+        finishRound!(game);
         return game;
-
 end
 
 
 
 
+gtest = runGametest()
 
-gtest = runGametest();
-
+gtest.boards[1].triangle.rows[5]
 gtest.boards[1].score
-gtest.boards[2].score
-gtest.boards[1].triangle.rows
+
+
+
+G = initGame(players = 2);
+
+runGametest(game = G);
+
+# Next step is to have the game run until the game is over.
+# we need to re init the islands post round. 
+
+
+
+
 
