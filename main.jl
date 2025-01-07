@@ -1,5 +1,7 @@
 
-using Random
+using Random, DataFrames, Flux
+import Flux.onehot
+
 
 # Structures:
 # Tile # Board # Triangle # Mosaic # Overflow # Score # Islands # Tile Management
@@ -8,7 +10,7 @@ These are the colours of the tiles in the game
 """
 const global tile_colours = [:blue, :yellow, :red, :black, :white]
 
-
+# OneTo(9)
 
 # Define the mosaic tiles
 mTiles = deepcopy(tile_colours)
@@ -506,7 +508,7 @@ function addToRow!(wall::MosaicWall,colour::Symbol,row::Int)
     wall.grid[row,pos] = true
 
     # and find the score from the row
-    s = scoreVec(wall.grid[row,:],pos ) + scoreVec(wall.grid[:,pos],row)
+    # s = scoreVec(wall.grid[row,:],pos ) + scoreVec(wall.grid[:,pos],row)
 
     score = max(scoreVec(wall.grid[row,:],pos ) + scoreVec(wall.grid[:,pos],row ),1)
 
@@ -517,6 +519,34 @@ end
 M = initMosaic()
 addToRow!(M,:yellow,1)
 
+
+function addToRow(wall::MosaicWall,colour::Symbol,row::Int)
+
+    # find the position of the color across
+    if colour == :blank
+        return 0
+    end
+
+    pos = findfirst(mosaicMap[row,:] .== colour)
+
+    @assert pos ∈ 1:5 "Position not mosaic wall: $pos, $colour"
+    @assert row ∈ 1:5 "Row not in mosaic wall: $row"
+
+
+    # check if already populated
+    # @assert wall.grid[row,pos] == false "There is already a tile present"
+    if wall.grid[row,pos]
+        @warn "There is already a tile present. Returning score anyway"
+    end
+
+    score = max(scoreVec(wall.grid[row,:],pos ) + scoreVec(wall.grid[:,pos],row ),1)
+    return score
+
+end
+
+
+# M = initMosaic()
+# addToRow(M,:yellow,1)
 
 """
 This board is the main object that players interact with. It hold the triangle, the mosaic wall, the discard, and the score of the player.
@@ -536,10 +566,11 @@ mutable struct Board
     mosaic::MosaicWall
     discard::Bag
     score::Int
+    prevscore::Int
 end
 
 function initBoard()
-    Board(initTriangle(), initMosaic(), CreateBag(empty = true), 0)
+    Board(initTriangle(), initMosaic(), CreateBag(empty = true), 0, 0)
 end
 
 
@@ -569,14 +600,17 @@ mutable struct Game
     boards::Vector{Board}
     rounds::Int
     playerTurn::Int
+    gameID::Int
+    turn::Int
 end
 
-function initGame(; players::Int = 2, playerStart = rand(1:players))
+function initGame(; players::Int = 2, playerStart = 1)
     bag = CreateBag()
     islands = Islands(Bag[])
     pool = initPool()
     boards = Vector{Board}()
     rounds = 0
+    id = rand(Int)
 
     if players == 2
 
@@ -618,7 +652,7 @@ function initGame(; players::Int = 2, playerStart = rand(1:players))
         end
     end
 
-    return Game(bag, islands, pool, boards, rounds, playerStart)
+    return Game(bag, islands, pool, boards, rounds, playerStart,id,1)
 end
 
 game = initGame(players = 2)
@@ -674,6 +708,7 @@ function addTilesToRow!(game::Game, board_i::Int, row_i::Int, tiles::Union{Vecto
         for tile in tiles
             push!(game.boards[board_i].discard.tiles, tile)
         end
+        game.boards[board_i].discard.tiles = first(game.boards[board_i].discard.tiles, 7)
         return game
     end
 
@@ -692,13 +727,15 @@ function addTilesToRow!(game::Game, board_i::Int, row_i::Int, tiles::Union{Vecto
     
     if row_i != 6 && isRowFull(game.boards[board_i].triangle.rows[row_i])
         game.boards[board_i].triangle.rows[row_i].completed = true
-        println("Row $row_i is completed")
+        # println("Row $row_i is completed")
     end
 
     # Now once we are out of the loop, we need to push the rest of the tiles to the pool
     for i in 1:length(tiles)
         push!(game.boards[board_i].discard.tiles, pop!(tiles))
     end
+    # and ensure that we only have 7 in our discard.
+    game.boards[board_i].discard.tiles = first(game.boards[board_i].discard.tiles, 7)
     return game
 
 end
@@ -734,8 +771,9 @@ function playerAction!(game::Game, player::Int, island_i::Int, colour::Symbol, t
 
         slurp = game.pool.tiles
         if StartTile(:start_token) ∈ slurp
-            println("player $player has taken the start token")
-            push!(game.boards[player].discard.tiles, popat!(slurp, findfirst(x -> x.colour == :start_token, slurp)))
+            # println("player $player has taken the start token")
+            pushfirst!(game.boards[player].discard.tiles, popat!(slurp, findfirst(x -> x.colour == :start_token, slurp)))
+            game.boards[player].discard.tiles = first(game.boards[player].discard.tiles, 7)
         end
     else
         slurp = game.islands.islands[island_i].tiles
@@ -775,8 +813,9 @@ function playerAction!(game::Game, player::Int, island_i::Int, colour::Symbol, t
         # And add the rest to the pool
         game.pool.tiles = slurp
     end
-    # finally update the player turn.
+    # finally update the player turn and game turn
     game.playerTurn = mod1(player + 1, length(game.boards))
+    game.turn += 1
 
     return game
 
@@ -833,6 +872,25 @@ amount = 1
 _pool = 1
 _triangleRow = 1
 PM = PlayerMove(_player, _colour,2, _pool, _triangleRow)
+
+import Base.show
+
+function Base.show(io::IO, move::PlayerMove)
+
+    if move.pool == 0
+        pool = "Pool"
+    else
+        pool = "Isl-$(move.pool)"
+    end
+
+    if move.row == 6
+        row = "Discard"
+    else
+        row = "Row-$(move.row)"
+    end
+
+    println(io, "P$(move.player): $(move.amount) $(move.colour) from $pool -> $row")
+end
 
 
 
@@ -896,9 +954,7 @@ end
 This function takes a game and a move, and applies the move to the game. The move is a PlayerMove object that is produced by the playerMoves function.
 """
 function runMove!(game::Game, move::PlayerMove)
-
     playerAction!(game, move.player, move.pool, move.colour, move.row)
-
 end
 
 game = initGame(players = 2)
@@ -949,7 +1005,6 @@ function updateEligibilty!(board::Board)
 
         end
     end
-
 end
 
 
@@ -976,7 +1031,7 @@ function applyScore!(board::Board)
 
         if i.completed
             # update the score and rm the tiles
-            score+= addToRow!(board.mosaic, i.tiles[1].colour,i.sz)
+            score =  score + addToRow!(board.mosaic, i.tiles[1].colour,i.sz)
             
             # Apply discard tiles to bag
             for n in 1:i.sz -1
@@ -1011,6 +1066,7 @@ function applyScore!(board::Board)
     return returnTiles
 
 end
+
 
 
 game = initGame(players = 2)
@@ -1100,19 +1156,23 @@ function finishRound!(game::Game)
 
     if length(checkMoves(game)) == 0
 
-        println("Round is over")
+        # println("Round is over")
 
         # check what player has the start token
         game.playerTurn = findWhoStarts(game)
 
+
         # The round is over and we need to move objects over to the mosaic.
         for b in game.boards
-
+            b.prevscore = b.score
             tiles = applyScore!(b) # apply score and do the things
             append!(game.bag,tiles) # add the leftover tiles to the bag.
         end
+
         # move the start token to the Pool
-        push!(game.pool.tiles, startTile())
+        push!(game.pool.tiles,popat!(game.bag.tiles,findfirst(x -> x.colour == :start_token ,game.bag.tiles)))
+        # and update the round number
+        game.rounds+=1 
 
         # repopulate the islands
 
@@ -1148,6 +1208,7 @@ function finishRound!(game::Game)
             end
         end
 
+        
         return game
     else
 
@@ -1168,10 +1229,10 @@ function isGameOver(game::Game)
 
         for i in 1:5
             if b.mosaic.grid[i,:] == [true,true,true,true,true]
-                println("")
-                println("###")
-                println("Game is over")
-                println("###")
+                # println("")
+                # println("###")
+                # println("Game is over")
+                # println("###")
 
                 return true
             end
@@ -1182,7 +1243,7 @@ function isGameOver(game::Game)
 end
 
 # looks at a board and returns the extra score of the players
-function checkExtraScore(board::Board)
+function checkExtraScore!(board::Board)
 
     grid = board.mosaic.grid
     score = 0
@@ -1191,14 +1252,14 @@ function checkExtraScore(board::Board)
 
     for i in 1:5
         if grid[i,:] == [true,true,true,true,true]
-            println("Row $i is full")
+            # println("Row $i is full")
             score+= 2
         end
     end
 
     for i in 1:5
         if grid[:,i] == [true,true,true,true,true]
-            println("col $i is full")
+            # println("col $i is full")
             score+= 7
         end
     end
@@ -1222,13 +1283,14 @@ end
 
 # println("Running Game!")
 
+# This runs a game, and returns false if the game is not over, and true if the game is over.
+function runGametest(;
+    game = initGame(players = 2),
+    game_df = DataFrame(gameState = Game[], move = PlayerMove[])
+    )
 
-function runGametest(;game = initGame(players = 2))
-    println("Running Test Game!")
-    println("")
-
-    # Init the game
-    # game = initGame(players = 2)
+    # println("Running Test Game!")
+    # println("")
 
     # Show moves
     while checkMoves(game) != []
@@ -1243,8 +1305,9 @@ function runGametest(;game = initGame(players = 2))
         amount = moof.amount
         row = moof.row
         
-        println("Player $p is taking $amount $colour from pool $pool to put in row $row")
+        # println("Player $p is taking $amount $colour from pool $pool to put in row $row")
 
+        push!(game_df,(deepcopy(game),deepcopy(moof)))
         runMove!(game,moof);
     end
     
@@ -1252,34 +1315,495 @@ function runGametest(;game = initGame(players = 2))
 
         if isGameOver(game)
             for b in game.boards
-                b.score+= checkExtraScore(b)
-                println(b.score)
+                b.score+= checkExtraScore!(b)
+
+                # println(b.score)
+                # and push the final game state with the final scores.
+                push!(game_df,(deepcopy(game),PlayerMove(0, :gameOver,0, -1, -1)))
+
+                return true
             end
 
             # and print the final scores
 
         end
 
-        return game;
+        return false;
+end
+
+
+
+"""
+"""
+function isWinner2px(game::Game,playerID::Int)
+
+    p1_score = game.boards[1].score
+    p2_score = game.boards[2].score
+
+    if p1_score == p2_score
+        # println("draw")
+        return 1
+    elseif playerID == 1 && p1_score > p2_score
+        return 1
+    elseif playerID == 2 && p2_score > p1_score
+        return 1
+    else
+        return 0
+    end
 end
 
 
 
 
-game = initGame(players = 2);
-
-# playerMoves(game,game.playerTurn)[32]
-# runMove!(game,playerMoves(game,game.playerTurn)[32]);
-runGametest(game = game);
-
-game.boards[1].triangle.rows
-game.boards[2].mosaic.grid
+# Here are some ML functions that we use to process and train the model
 
 
-# Next step is to have the game run until the game is over.
-# we need to re init the islands post round. 
+# ok, so now we need to pull out this data and put it into a tabular form.
+# for the person whos turn it is, is always the first person in the list
+function processBag(bag::Bag)
+    v = zeros(Int,5)
+    for i in 1:5
+        v[i] = count(x -> x.colour == tile_colours[i], bag.tiles)
+    end
+    return v
+end
+# function processBag(bag::TriangleRow)
+#     v = zeros(Int,5)
+#     for i in 1:5
+#         v[i] = count(x -> x.colour == tile_colours[i], bag.tiles)
+#     end
+#     return v
+# end
+
+function processTriangleRow(tr::TriangleRow)
+    sz = tr.sz
+    m = Flux.onehotbatch(getfield.(tr.tiles,:colour),vcat(tile_colours,[:blank]))
+    m2 = reshape(m,6*sz)
+    return m2
+end
+# TriangleRow(game.boards[1].triangle.rows[5])
+
+function processDiscard(discard::Bag)
+
+    sz = length(discard.tiles)
+    # Flux.onehotbatch(getfield.(discard.tiles,:colour),vcat(tile_colours,[:start_token]))
+    m = reshape(Flux.onehotbatch(getfield.(discard.tiles,:colour),vcat(tile_colours,[:start_token])),6*sz)
+    m2 = vcat(m,zeros(Bool,42 - length(m)))
+    return m2
+
+end
 
 
+function processIsland(i::Bag)
+
+    v = zeros(Int,20)
+
+    m = Flux.onehotbatch(getfield.(i.tiles,:colour),tile_colours)
+    mSz = size(m)
+    ln = mSz[1]*mSz[2]
+    m2 = reshape(m,ln)
+
+    v[1:ln] = m2
+    return v
+end
+
+g = initGame(players = 2)
+processIsland(g.islands.islands[1])
+
+function processPool(pool::Bag)
+
+    # max pool length is 16 tokens for 2px
+    v = zeros(Bool,16*6)
+    sz = length(pool.tiles)
+
+    m = Flux.onehotbatch(getfield.(pool.tiles,:colour),vcat(tile_colours,:start_token))
+    m2 = reshape(m,sz*6)
+    mSz = length(m2)
+    v[1:mSz] = m2
+
+    return v
+end
+
+processPool(g.pool)
+
+
+
+
+game = initGame(players = 2)
+game.pool
+# game.boards[1].discard.tiles = [StartTile(:start_token),mosaicTile(:blue),mosaicTile(:blue),mosaicTile(:blue),mosaicTile(:blue),mosaicTile(:blue),mosaicTile(:blue),mosaicTile(:blue)]
+
+# processDiscard(game.boards[1].discard)
+
+# processDiscard(game.boards[1].discard)
+
+
+
+
+
+
+
+processDiscard(game.boards[1].discard)
+
+# game.boards[1].triangle.rows[1]
+# TriangleRow(game.boards[1].triangle.rows[1])
+
+function processBoard(board::Board)
+
+    score = board.score
+    wall = reshape(board.mosaic.grid,25)
+    # get the rows
+    rows = vcat(
+        # Maybe look at turning this into a full 1hot encoding
+        # ie 5th row 5*5 = 25
+        processTriangleRow(board.triangle.rows[1]),
+        processTriangleRow(board.triangle.rows[2]),
+        processTriangleRow(board.triangle.rows[3]),
+        processTriangleRow(board.triangle.rows[4]),
+        processTriangleRow(board.triangle.rows[5])
+    )
+    discard = processDiscard(board.discard) # if 1hot then this needs to be 27*5
+
+    return vcat(score,wall,rows,discard)
+
+end
+
+game = initGame(players = 2)
+processBoard(game.boards[1])
+
+
+
+
+
+"""
+This turns the gamestate into a vector.
+"""
+function processGame2px(game::Game)
+
+    if game.playerTurn == 1
+        p1 = processBoard(game.boards[1])
+        p2 = processBoard(game.boards[2])
+    else
+        p2 = processBoard(game.boards[1])
+        p1 = processBoard(game.boards[2])
+    end
+
+    # get the pool
+    pool = processPool(game.pool)
+
+    islands = zeros(Int,20*5)
+    # and process the islands
+    island_sz = length(game.islands.islands)
+    for i in 1:island_sz
+        islands[20*i - 19:20*i] = processIsland(game.islands.islands[i])
+    end
+
+
+    return vcat(p1,p2,pool,islands)
+
+end
+
+g = initGame(players = 2)
+processGame2px(g)
+
+# and now process the move
+# movetile_colours
+"""
+This transforms a a move into a vector.
+"""
+function processMove(move::PlayerMove)
+
+    colour = zeros(Int,5)
+    for i in 1:5
+        colour[i] =  move.colour == tile_colours[i]
+    end
+    # pool = move.pool
+    pool = onehot(move.pool,0:5)
+    # row = move.row
+    row = onehot(move.row,1:6)
+    return vcat(colour,pool,row)
+end
+
+
+# processMove(moves[1])
+
+function getScore(game::Game,playerID::Int)
+    if playerID == 0
+        return 0
+    end
+    return game.boards[playerID].score
+end
+
+# getScore(GameData.gameState,GameData.playerTurn)
+
+
+# ok, so I want a function that looks at the move and game, and sees what the short term effect will be.
+# This will basically be the scoring function.
+function getShortTermEffect(game::Game,move::PlayerMove)
+
+    if move.colour == :gameOver
+        return 0
+    end
+
+    scoreΔ = 0
+    board = game.boards[move.player]
+    tile_n = move.amount
+
+    row = board.triangle.rows[move.row]
+    avalibleSlots = row.sz - length(findall(x -> x.colour != :blank, row.tiles))
+
+    discardCosts  = [1,1,2,2,2,3,3]
+    availableDiscardCosts = discardCosts[max(1,length(board.discard.tiles)):end]
+    
+
+    if move.pool == 0
+        # Check for the start token
+        if StartTile(:start_token) ∈ game.pool.tiles && length(availableDiscardCosts) > 0
+
+            # Find the score from the start token going to discard
+            scoreΔ -= availableDiscardCosts[1]
+            # and modify the discard cost vector
+            popfirst!(availableDiscardCosts)
+            return scoreΔ
+        end
+    end
+
+
+    if move.row == 6 && length(availableDiscardCosts) > 0
+        # then we are going to discard all the tiles up to the amount available in the discard vec
+        scoreΔ -= sum(availableDiscardCosts[1:min(tile_n,length(availableDiscardCosts))])
+        return scoreΔ
+    end
+
+    if move.row != 6
+        # then we are adding to a row
+        if avalibleSlots > tile_n
+            # then we won't fill up a row lol rip. 
+            return scoreΔ
+        else
+            # ok, so now we look at its position on the grid, and see if there is any overflow.
+
+            scoreΔ += addToRow(board.mosaic,move.colour,row.sz)
+
+            if avalibleSlots < tile_n
+                scoreΔ -= sum(availableDiscardCosts[1:min(tile_n - avalibleSlots,length(availableDiscardCosts))])
+            end
+
+            return scoreΔ
+        end
+    end
+end
+
+# g = initGame(players = 2)
+# m = PlayerMove(1,:blue,5,1,5)
+# getShortTermEffect(g,m)
+
+
+function applyTargets(sdf::SubDataFrame)
+
+    sdf.playerWin = isWinner2px.((sdf.gameState[end],),getfield.(sdf.move,1))
+    sdf.playerScore = getScore.(sdf.gameState,sdf.playerTurn)
+    # sdf._score = getScore.(sdf.gameState,sdf.playerTurn)
+
+    endGame = sdf.gameState[end]
+
+    p1 = getScore(endGame,1)
+    p2 = getScore(endGame,2)
+
+    leftjoin!(sdf,DataFrame(playerTurn = [1,2], fs = [p1,p2]),on = :playerTurn)
+    sdf.finalScore = sdf.fs
+    select!(sdf, Not(:fs))
+    # DataFrame(player = [1,2], score = [p1,p2])
+
+    # sdf.finalScore .= 1
+
+
+    sdf.gameState[end].boards[2].mosaic.grid
+    sdf.gameState[end].boards[1].score
+
+    isGameOver(sdf.gameState[end])
+
+    # checkExtraScore(sdf.gameState[end].boards[1])
+
+    tile_colours
+    B = sdf.gameState[end-1].boards[1]
+
+    B.discard
+    B.triangle.rows
+    B.mosaic.grid
+
+    score = combine(groupby(sdf,[:round,:playerTurn,]),:playerScore => maximum => :scoreNextRound)
+    
+
+
+    # get final scores:
+    push!(score,(score.round[end],1,getScore(sdf.gameState[end],1)))
+    push!(score,(score.round[end],2,getScore(sdf.gameState[end],2)))
+    # move the score back one
+    score.round .-= 1
+    sdf2 = leftjoin(sdf,score,on = [:round,:playerTurn])
+
+    sdf2.playerScoreIncrease = sdf2.scoreNextRound - sdf2.playerScore
+    select!(sdf2, Not(:playerScore,:scoreNextRound))
+    filter!(x -> !ismissing(x.playerScoreIncrease) ,sdf2)
+    return sdf2
+end
+
+
+# gdf = combine(groupby(GameData, :ID), applyTargets)
+function transformData(df_in)
+
+    df = deepcopy(df_in)   
+
+    df.vec = vcat.(processGame2px.(df.gameState),processMove.(df.move))
+    df.shortTermMove = getShortTermEffect.(df.gameState,df.move)
+    df.ID = getfield.(df.gameState,:gameID)
+    df.playerTurn = getfield.(df.move,1)
+    df.round = getfield.(df.gameState,:rounds)
+    df.gameOver = isGameOver.(df.gameState)
+
+    # targets
+    df.playerWin .= 0
+    df.playerScore .= 0
+    df.playerScoreIncrease .= 0
+    # df.finalScore .= 0
+    
+    _df = combine(groupby(df, :ID), applyTargets)
+    filter!(row ->row.gameOver !== true,_df)
+    return _df
+
+end
+
+# PlayerMove
+# TriangleRowq
+
+
+# function transformScore(x)
+#     if x == 0 
+#         return 0
+#     elseif x > 0
+#         return log(x+1)
+#     else
+#         return -log(-x+1)
+#     end
+# end
+transformScore(x) = x   
+
+function returnScore(x)
+    if x == 0 
+        return 0
+    elseif x > 0
+        return exp(x) - 1
+    else
+        return -exp(-x) + 1
+    end
+end
+
+# take a gamestate and a move and score the outcome
+
+function getVec(game::Game,move::PlayerMove)
+
+    vec = vcat(processGame2px(game),processMove(move))
+    return vec
+
+end
+
+
+
+
+# ok, so I want to be able to run multiple models, so I can pass the model in as a param. 
+function pickMove(game::Game, player::Int; model=rand,all = false)
+
+    p = game.playerTurn
+    @assert p == player "Player $player does not have the current turn"
+
+    moves = playerMoves(game,p);
+
+    if model == rand
+        move = rand(moves)
+        return move
+    end
+
+    if model == getShortTermEffect
+        shuffle!(moves) # jiggle it around a bit.
+        preds = getShortTermEffect.((game,),moves)
+        move = moves[findmax(preds)[2]]
+        if all
+            return moves,preds
+        end
+        return move
+
+    end
+
+    # else score the model
+
+    vec = hcat(getVec.((game,),moves)...)
+    preds = (model(vec |> device) |> cpu)[1,:]
+
+    move = moves[findmax(preds)[2]]
+    # move = moves[findmin(preds)[2]]
+
+    if all
+        return moves,preds
+    end
+    return move
+
+end
+
+
+
+"""
+This runs a game of azul with specified models. Returns true if the game is over.
+"""
+function runRound(;
+    game = initGame(players = 2),
+    game_df = DataFrame(gameState = Game[], move = PlayerMove[]),
+    p1 = rand,
+    p2 = rand,
+    p3 = rand,
+    p4 = rand
+)
+
+while checkMoves(game) != []
+ 
+    p = game.playerTurn
+    # println("Player $p is making a move")
+    # select the players move
+    if     p == 1
+        move = pickMove(game,p,model = p1)
+    elseif p == 2
+        move = pickMove(game,p,model = p2)
+    elseif p == 3
+        move = pickMove(game,p,model = p3)
+    elseif p == 4
+        move = pickMove(game,p,model = p4)
+    end
+
+    pool = move.pool
+    colour = move.colour
+    amount = move.amount
+    row = move.row
+    # println("Player $p is taking $amount $colour from pool $pool to put in row $row")
+
+    push!(game_df,(deepcopy(game),deepcopy(move)))
+    runMove!(game,move);
+end
+
+    finishRound!(game);
+    if isGameOver(game)
+        for b in game.boards
+            b.score+= checkExtraScore!(b)
+
+            # and push the final game state with the final scores.
+            push!(game_df,(deepcopy(game),PlayerMove(0, :gameOver,0, 1, 1)))
+            return true
+        end
+
+    end
+    # Game is not over so return false
+    return false
+
+end
 
 
 
