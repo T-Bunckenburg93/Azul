@@ -1062,9 +1062,7 @@ function applyScore!(board::Board)
     # finally. update the eligible colours
     updateEligibilty!(board)
 
-
     return returnTiles
-
 end
 
 

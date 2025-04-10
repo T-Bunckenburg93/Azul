@@ -1,100 +1,101 @@
-import ReinforcementLearningBase: RLBase
-import ReinforcementLearningCore: Player
-import CommonRLInterface
+# import ReinforcementLearningBase: RLBase
+# import ReinforcementLearningCore: Player
+# import CommonRLInterface
 using Combinatorics
 using Multisets
+using Random
+
 
 # First up, lets define the constants of Azul.
 include("constants.jl")
-
-# Next, lets define the game state.
-
-
+include("game.jl")
+include("processGame.jl")
 
 
+# Game <: AbstractEnv
+
+mutable struct GameEnv <: AbstractEnv
+    game::Game
+end
+
+RLBase.players(::GameEnv) = (Player(1), Player(2))
+
+function RLBase.reset!(env::GameEnv)
+    env.game = initGame()
+end
+
+function RLBase.act!(env::GameEnv,action::PlayerMove)
+    runMove!(env.game,action)
+end
 
 
 
 
-# ok, so I need to find/define an action space.
+RLBase.action_space(env::GameEnv) = zeros(Bool,length(hashActionMap))
 
-# how many combinations of actions are there?
-# lets look at the islands:
-# each island has 4 tiles, and there are 5 colours,
-I = multiset_combinations([tile_colours;tile_colours;tile_colours;tile_colours;tile_colours], 4)
+function legal_action_space(env::GameEnv, player::Player)
 
-I = Multiset.(collect(I))
+    p_id = parse(Int,String(player.name))
+    legal_action_space = zeros(Bool,length(hashActionMap))
 
-pool_I = Multiset[]
-for i in tile_colours
-    for sz in 1:7 # if its larger than 7, it will be impossible to fill the discard so any more is meaningless
-        push!(pool_I, Multiset([i for _ in 1:sz]))
+    pm = playerMoves(env.game,p_id)
+    for p in pm
+        legal_action_space[findfirst(x -> x == p.hash , hashActionMap)] = true
+    end
+    return legal_action_space
+
+end
+
+legal_action_space(env::GameEnv) = legal_action_space(env,Player(env.game.playerTurn))
+
+function RLBase.is_terminated(env::GameEnv)
+
+    isGameOver(env.game)
+
+end
+
+function RLBase.reward(env::GameEnv, player::Player)
+    if isGameOver(env.game)
+        p_id = parse(Int,String(player.name))
+        return env.game.boards[p_id].score
+    else
+        return 0
     end
 end
 
-token_I = deepcopy(pool_I)
-for i in token_I
-    push!(i, :start_token)
-end
-
-I_choice = vcat(I, pool_I)
-
-I_all = Tuple[]
-
-for row in 1:6
-    for choice in I_choice
-        for token in unique(choice)
-            push!(I_all, (row,token, choice))
-        end
-    end
-end
-
-I_all
-
-I_all_hash = hash.(I_all)
-
-# This is the action space.
-
-
-# given a game I need to generate the eligible actions from the state space. 
-
-g = initGame(players = 2);
-playerMoves(g,1)
-
-i = g.islands.islands[1]
-
-# i should return 4 moves
-
-
-zeros(Bool, length(I_all))
-
-function get_actions_island(i::Bag)
-
-    colours = Multiset(getfield.(i.tiles, :colour))
-    actions = zeros(Bool, length(I_all))
-    
-    for row in 1:6 
-        for token in unique(colours)
-
-            actions[findfirst( x-> x == hash((row, token, colours)), I_all_hash)] = true
-
-            # push!(actionHash, hash((row, token, colours)))
-        end
-    end
-
-    return actions
-end
-
-h_actions = get_actions_island(i)
 
 
 
-get_actions(g) = sum(get_actions.(g.islands.islands))
+RLBase.state_space(env::GameEnv) = processGame2px(env.game)
+RLBase.state(env::GameEnv, ::Observation, ::AbstractPlayer) = env.game
+
+RLBase.current_player(env::GameEnv) = Player(env.game.playerTurn)
+
+RLBase.NumAgentStyle(::GameEnv) = MultiAgent(2)
+RLBase.DynamicStyle(::GameEnv) = SEQUENTIAL
+RLBase.ActionStyle(::GameEnv) = FULL_ACTION_SET
+RLBase.InformationStyle(::GameEnv) = PERFECT_INFORMATION
+# RLBase.StateStyle(::GameEnv) = (Observation{Int}(), Observation{String}(), Observation{BitArray{3}}())
+# RLBase.RewardStyle(::GameEnv) = TERMINAL_REWARD
+# RLBase.UtilityStyle(::GameEnv) = ZERO_SUM
+RLBase.ChanceStyle(::GameEnv) = DETERMINISTIC
 
 
 
+g = initGame()
+env = GameEnv(g)
 
-# intersect(h_actions, I_all_hash)
 
 
+fieldnames(typeof(Player(1)))
+
+parse(Int,String(Player(1).name))
+
+policy = RandomPolicy(action_space(env))
+
+policy(env)
+
+x = collect(Base.OneTo(4))
+
+reward(env,Player(1))
 
